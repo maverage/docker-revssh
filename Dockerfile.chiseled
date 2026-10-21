@@ -31,7 +31,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 FROM --platform=$BUILDPLATFORM golang:1.26 AS chiselbuild
 RUN CGO_ENABLED=0 go install github.com/canonical/chisel/cmd/chisel@v1.2.0
 
-FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS slicebuild
+FROM --platform=$BUILDPLATFORM ubuntu:26.04 AS slicebuild
 ARG TARGETARCH
 COPY --from=chiselbuild /go/bin/chisel /usr/local/bin/chisel
 RUN mkdir -p /rootfs && chisel cut --release ubuntu-24.04 --arch "$TARGETARCH" --root /rootfs \
