@@ -57,7 +57,7 @@ The Alpine image sets the `tunnel` account shadow password field to `NP` (an unu
 
 ### Authentication failure diagnostics
 
-The integration suite reports concise server logs if authorized SSH authentication fails. The SSH server reads `/run/revssh/authorized_keys` using the unprivileged `tunnel` account (UID 10001), so the initializer sets `/run/sshd` to `0755` and the root-owned `authorized_keys` file to `0644`. These public keys are not secrets; the file remains unwritable by the tunnel account. Distroless/Chiseled supply a non-password `NP` shadow marker for the tunnel user; password and keyboard-interactive authentication remain disabled.
+The integration suite reports concise server logs if authorized SSH authentication fails. The SSH server runs as the unprivileged `tunnel` account (default UID 10001) and reads `/run/revssh/authorized_keys`. The initializer creates `/run/revssh` (`0700`) and the file (`0600`) owned by that account after dropping privileges. Distroless/Chiseled supply a non-password `NP` shadow marker for the tunnel user; password and keyboard-interactive authentication remain disabled.
 
 
 ### Integration-test networking
@@ -71,4 +71,4 @@ Docker bridge container addresses.
 
 ## Non-root regression
 
-The CI integration test checks default and custom UID/GID settings and SSH functionality after privilege drop. Both SSH host-key modes and every architecture must successfully start the SSH server, authenticate forwarding-only clients, and enforce denied operations under this UID.
+The CI integration test checks default and custom UID/GID settings, asserts that no root process remains in the container, and exercises SSH functionality after privilege drop. Both SSH host-key modes and every architecture must successfully start the SSH server, authenticate forwarding-only clients, and enforce denied operations under this UID.

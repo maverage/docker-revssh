@@ -389,7 +389,7 @@ Important boundaries:
 - **`permitlisten` restricts the listening address/port on the server**, not the destination behind a remote client's tunnel. Authorized clients control their *own* forwarding destinations.
 - With `GatewayPorts clientspecified`, clients must specify **`0.0.0.0:PORT`** explicitly in `-R`; `-R PORT:...` is a different listener request.
 - The forwarded listeners bind to `0.0.0.0` **inside the container** so the reverse proxy can reach them. Other containers on the same reachable network may also connect; use a dedicated network and additional network policy where necessary. They are not exposed on the host unless explicitly published.
-- The service starts `sshd` as root for SSH daemon initialization and account handling. Do not force a non-root Docker user without validating a different sshd deployment model.
+- `/revssh-init` runs as root only long enough to apply `UID`/`GID`, then permanently drops privileges and `exec`s `sshd` as that unprivileged user; no root process remains in the container (checked by the integration tests). Do not set Compose/`docker run` `user:` to a non-root value, because the bootstrap needs root.
 - Keep `/data` persistent and protected, restrict host SSH port 2222 in the firewall where feasible, and pin host keys on clients.
 
 ## Building locally

@@ -133,22 +133,9 @@ func main() {
 		fail("unknown arguments")
 	}
 	provisionIdentity()
+	// provisionIdentity already created /data and /run/revssh with 0700 ownership of the final UID.
 	const data = "/data"
 	const runtime = "/run/revssh"
-	if err := os.MkdirAll(data, 0700); err != nil {
-		fail("mkdir data: %v", err)
-	}
-	if err := os.MkdirAll(runtime, 0700); err != nil {
-		fail("mkdir run: %v", err)
-	}
-	if err := os.Chmod(data, 0700); err != nil {
-		fail("chmod data: %v", err)
-	}
-	// The daemon and authentication user run under the configured UID.
-	// Keep mutable key configuration private to that user.
-	if err := os.Chmod(runtime, 0700); err != nil {
-		fail("chmod run: %v", err)
-	}
 	host := data + "/ssh_host_ed25519_key"
 	if _, err := os.Stat(host); errors.Is(err, os.ErrNotExist) {
 		if os.Getenv("REVSSH_HOST_KEY_MODE") == "embedded" {

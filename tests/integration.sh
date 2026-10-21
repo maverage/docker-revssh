@@ -96,9 +96,15 @@ test "$observed" = "$expected"
 docker cp "$name:/run/revssh/authorized_keys" authkeys
 # Verify daemon and initializer execute with the intended unprivileged UID.
 # Verify sshd really runs under the default unprivileged identity after bootstrap.
-if ! docker top "$name" -eo uid,gid,comm | grep -Eq '^[[:space:]]*10001[[:space:]]+10001[[:space:]]+sshd'; then
+if ! docker top "$name" -eo pid,uid,gid,comm | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+10001[[:space:]]+10001[[:space:]]+sshd'; then
   echo 'SSH daemon did not drop to UID/GID 10001:10001' >&2
-  docker top "$name" -eo uid,gid,comm >&2 || true
+  docker top "$name" -eo pid,uid,gid,comm >&2 || true
+  exit 1
+fi
+# No process in the container (init has exec'd into sshd) may remain root.
+if docker top "$name" -eo pid,uid,comm | awk 'NR>1 && $2==0 {found=1} END {exit !found}'; then
+  echo 'A root process is still running in the container' >&2
+  docker top "$name" -eo pid,uid,gid,comm >&2 || true
   exit 1
 fi
 # A distinct UID and GID must work without rebuilding the image.
@@ -107,7 +113,7 @@ docker run -d --platform "$PLATFORM" --name "$custom" --network "$net" \
   -v "$work/tunnels.conf:/config/tunnels:ro" -e TUNNELS_FILE=/config/tunnels \
   -e UID=12000 -e GID=13000 "$IMAGE" >/dev/null
 for i in {1..30}; do
-  if docker top "$custom" -eo uid,gid,comm 2>/dev/null | grep -Eq '^[[:space:]]*12000[[:space:]]+13000[[:space:]]+sshd'; then break; fi
+  if docker top "$custom" -eo pid,uid,gid,comm 2>/dev/null | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+12000[[:space:]]+13000[[:space:]]+sshd'; then break; fi
   if [[ "$(docker inspect -f '{{.State.Running}}' "$custom")" != true ]]; then
     echo 'Custom UID/GID container failed; logs:' >&2
     docker logs "$custom" >&2 || true
@@ -115,7 +121,7 @@ for i in {1..30}; do
   fi
   sleep 1
 done
-if ! docker top "$custom" -eo uid,gid,comm | grep -Eq '^[[:space:]]*12000[[:space:]]+13000[[:space:]]+sshd'; then
+if ! docker top "$custom" -eo pid,uid,gid,comm | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+12000[[:space:]]+13000[[:space:]]+sshd'; then
   echo 'Custom UID/GID was not applied to sshd' >&2
   exit 1
 fi
