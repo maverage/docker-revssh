@@ -25,7 +25,12 @@ docker run -d --platform "$PLATFORM" --name "$name" --network "$net" \
 hostport=$(docker port "$name" 2222/tcp | head -n1 | sed 's/.*://')
 for i in {1..60}; do
   if ssh-keyscan -T 2 -p "$hostport" 127.0.0.1 > known_hosts 2>/dev/null && [[ -s known_hosts ]]; then break; fi
-  if [[ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]]; then echo 'SSH container exited'; exit 1; fi
+  if [[ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]]; then
+    echo 'SSH container exited; diagnostics:' >&2
+    docker inspect --format 'Status={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' "$name" >&2 || true
+    docker logs "$name" >&2 || true
+    exit 1
+  fi
   sleep 1
 done
 test -s known_hosts
@@ -57,7 +62,10 @@ else
   for i in {1..60}; do
     if ssh-keyscan -T 2 -p "$otherport" 127.0.0.1 > other-known-hosts 2>/dev/null && [[ -s other-known-hosts ]]; then break; fi
     if [[ "$(docker inspect -f '{{.State.Running}}' "$other")" != true ]]; then
-      echo 'Second runtime-key SSH container exited' >&2; exit 1
+      echo 'Second runtime-key SSH container exited; diagnostics:' >&2
+      docker inspect --format 'Status={{.State.Status}} ExitCode={{.State.ExitCode}} Error={{.State.Error}}' "$other" >&2 || true
+      docker logs "$other" >&2 || true
+      exit 1
     fi
     sleep 1
   done

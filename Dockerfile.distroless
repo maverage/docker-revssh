@@ -31,17 +31,24 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 FROM debian:trixie-slim AS sshbuild
 RUN apt-get update && apt-get install -y --no-install-recommends openssh-server openssh-client ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-# Capture OpenSSH's dynamic loader and shared library dependencies.
-# Base-debian13 provides common libraries; copying these provides version-matched dependencies.
-RUN set -eu; mkdir -p /sshroot /sshroot/var/empty; \
+# Debian 13 and Distroless use merged-/usr. The final base has /lib as a
+# symlink to /usr/lib; copying a real /lib directory would conflict with it.
+# Normalize resolved library paths into /usr/lib and preserve the base image's
+# existing dynamic-loader symlinks (/lib and /lib64).
+RUN set -eu; mkdir -p /sshroot/var/empty; \
     for binary in /usr/sbin/sshd /usr/bin/ssh-keygen /usr/lib/openssh/sshd-session /usr/lib/openssh/sshd-auth; do \
       [ -f "$binary" ] || continue; \
       mkdir -p "/sshroot$(dirname "$binary")"; cp -L "$binary" "/sshroot$binary"; \
-      ldd "$binary" | awk '/=> \// {print $3} /^\// {print $1}' | while read -r lib; do \
-        mkdir -p "/sshroot$(dirname "$lib")"; cp -L "$lib" "/sshroot$lib"; \
+      ldd "$binary" | awk '/=> \/ {print $3} /^\/ {print $1}' | while read -r lib; do \
+        case "$lib" in \
+          /lib/*) dest="/usr$lib" ;; \
+          /lib64/*) continue ;; \
+          *) dest="$lib" ;; \
+        esac; \
+        mkdir -p "/sshroot$(dirname "$dest")"; \
+        cp -L "$lib" "/sshroot$dest"; \
       done; \
-    done; \
-    cp -a /lib64 /sshroot/ 2>/dev/null || true
+    done
 
 FROM gcr.io/distroless/base-debian13:latest
 COPY --from=sshbuild /sshroot/ /
