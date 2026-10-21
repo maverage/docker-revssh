@@ -1,0 +1,78 @@
+# LOCAL Docker Compose deployment (not docker stack deploy).
+# `docker compose -f compose.embedded.yml up --build -d` builds and starts
+# the embedded-host-key image locally. NEVER push/export this image or cache.
+# Override domains via APP1_HOST, APP2_HOST; set ENDPOINT_A_PUBLIC_KEY,
+# ENDPOINT_B_PUBLIC_KEY and ACME_EMAIL in the invoking environment.
+name: docker-revssh
+
+services:
+  traefik:
+    image: traefik:v3.6
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=revssh_public
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?Set ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Read-only mount does NOT make Docker API access read-only.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/acme
+    networks: [public]
+    restart: unless-stopped
+
+  revssh:
+    # CAUTION: this image embeds an UNENCRYPTED PRIVATE SSH HOST KEY.
+    # NEVER publish, push, or use remote build caches for this image.
+    image: docker-revssh:chiseled-embedded-local
+    build:
+      context: .
+      dockerfile: Dockerfile.chiseled
+      args:
+        HOST_KEY_MODE: embedded
+    environment:
+      TUNNELS: |-
+        endpoint-a|18080|${ENDPOINT_A_PUBLIC_KEY:?Set ENDPOINT_A_PUBLIC_KEY}
+        endpoint-b|13000|${ENDPOINT_B_PUBLIC_KEY:?Set ENDPOINT_B_PUBLIC_KEY}
+    healthcheck:
+      test: ["CMD", "/revssh-init", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    ports:
+      - "${SSH_PUBLISHED_PORT:-2222}:2222"
+    networks: [public]
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=revssh_public
+      - traefik.http.routers.revssh-app1.rule=Host(`${APP1_HOST:-app1.example.com}`)
+      - traefik.http.routers.revssh-app1.entrypoints=websecure
+      - traefik.http.routers.revssh-app1.tls=true
+      - traefik.http.routers.revssh-app1.tls.certresolver=letsencrypt
+      - traefik.http.routers.revssh-app1.service=revssh-app1
+      - traefik.http.services.revssh-app1.loadbalancer.server.port=18080
+      - traefik.http.routers.revssh-app2.rule=Host(`${APP2_HOST:-app2.example.com}`)
+      - traefik.http.routers.revssh-app2.entrypoints=websecure
+      - traefik.http.routers.revssh-app2.tls=true
+      - traefik.http.routers.revssh-app2.tls.certresolver=letsencrypt
+      - traefik.http.routers.revssh-app2.service=revssh-app2
+      - traefik.http.services.revssh-app2.loadbalancer.server.port=13000
+
+networks:
+  public:
+    name: revssh_public
+    driver: bridge
+
+volumes:
+  traefik_acme:

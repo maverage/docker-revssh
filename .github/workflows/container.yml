@@ -1,0 +1,188 @@
+name: Build, test and publish docker-revssh
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-revssh-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-test-scan:
+    name: ${{ matrix.variant }} / ${{ matrix.arch }} / ${{ matrix.host_key_mode }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [alpine, distroless, chiseled]
+        arch: [amd64, arm64]
+        host_key_mode: [runtime, embedded]
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Resolve image tags
+        id: vars
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          echo "image=ghcr.io/${REPO,,}" >> "$GITHUB_OUTPUT"
+          echo "local=revssh-test:${{ matrix.variant }}-${{ matrix.arch }}-${{ matrix.host_key_mode }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build target architecture locally
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.${{ matrix.variant }}
+          platforms: linux/${{ matrix.arch }}
+          pull: true
+          build-args: |
+            HOST_KEY_MODE=${{ matrix.host_key_mode }}
+          load: true
+          push: false
+          tags: ${{ steps.vars.outputs.local }}
+          provenance: false
+          # Never export or reuse build caches containing private host keys.
+          cache-from: ${{ matrix.host_key_mode == 'runtime' && format('type=gha,scope={0}-{1}', matrix.variant, matrix.arch) || '' }}
+          cache-to: ${{ matrix.host_key_mode == 'runtime' && format('type=gha,mode=max,scope={0}-{1}', matrix.variant, matrix.arch) || '' }}
+          no-cache: ${{ matrix.host_key_mode == 'embedded' }}
+
+      - name: Run SSH integration suite
+        env:
+          IMAGE: ${{ steps.vars.outputs.local }}
+          PLATFORM: linux/${{ matrix.arch }}
+          HOST_KEY_MODE: ${{ matrix.host_key_mode }}
+        run: bash tests/integration.sh
+
+      - name: Scan built image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.vars.outputs.local }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: '1'
+          format: table
+
+      - name: Scan Dockerfile for misconfigurations
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: Dockerfile.${{ matrix.variant }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: table
+
+      # Embedded-key images NEVER leave the runner. Only runtime-mode images publish.
+      # Publishing THIS locally tested image avoids rebuilding between test and push.
+      - name: Login to GHCR
+        if: matrix.host_key_mode == 'runtime' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push tested architecture image
+        if: matrix.host_key_mode == 'runtime' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          LOCAL: ${{ steps.vars.outputs.local }}
+          VARIANT: ${{ matrix.variant }}
+          ARCH: ${{ matrix.arch }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag="ci-${SHA}-${VARIANT}-${ARCH}"
+          docker tag "$LOCAL" "$IMAGE:$tag"
+          docker push "$IMAGE:$tag"
+
+  publish-manifests:
+    name: Publish only runtime-key multi-arch tags (latest = chiseled)
+    needs: build-test-scan
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and verify manifest lists
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image="ghcr.io/${REPO,,}"
+          version=''
+          if [[ "$REF" == refs/tags/v* ]]; then version="${REF#refs/tags/v}"; fi
+          for variant in alpine distroless chiseled; do
+            sources=("$image:ci-${SHA}-${variant}-amd64" "$image:ci-${SHA}-${variant}-arm64")
+            tags=("$image:sha-${SHA}-${variant}")
+            if [[ "$REF" == refs/heads/main ]]; then
+              tags+=("$image:$variant")
+              if [[ "$variant" == chiseled ]]; then tags+=("$image:latest"); fi
+            fi
+            if [[ -n "$version" ]]; then
+              tags+=("$image:${version}-${variant}")
+              if [[ "$variant" == chiseled ]]; then tags+=("$image:$version"); fi
+              if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                minor="${version%.*}"
+                tags+=("$image:${minor}-${variant}")
+                if [[ "$variant" == chiseled ]]; then tags+=("$image:$minor"); fi
+              fi
+            fi
+            args=()
+            for tag in "${tags[@]}"; do args+=(-t "$tag"); done
+            docker buildx imagetools create "${args[@]}" "${sources[@]}"
+            for tag in "${tags[@]}"; do
+              docker buildx imagetools inspect "$tag"
+            done
+          done
+
+  github-release:
+    name: Create GitHub Release
+    needs: publish-manifests
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GH_REPO" \
+            --verify-tag \
+            --generate-notes \
+            --title "$TAG"

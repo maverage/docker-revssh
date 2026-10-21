@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1.7
+# Build from the repository root: docker build -f Dockerfile.alpine .
+
+# HOST_KEY_MODE=embedded creates a PRIVATE server key as an image layer.
+# NEVER push an embedded-mode image or its build cache to a registry.
+FROM --platform=$BUILDPLATFORM alpine:3.24 AS hostkeybuild
+ARG HOST_KEY_MODE=runtime
+RUN apk add --no-cache openssh-keygen
+RUN --mount=type=secret,id=revssh_hostkey,required=false \
+    mkdir -p /hostdata && \
+    case "$HOST_KEY_MODE" in \
+      runtime) ;; \
+      embedded) \
+        if [ -s /run/secrets/revssh_hostkey ]; then \
+          cp /run/secrets/revssh_hostkey /hostdata/ssh_host_ed25519_key; \
+        else \
+          ssh-keygen -q -t ed25519 -N '' -f /hostdata/ssh_host_ed25519_key; \
+        fi; \
+        chmod 600 /hostdata/ssh_host_ed25519_key; \
+        ssh-keygen -y -f /hostdata/ssh_host_ed25519_key > /hostdata/ssh_host_ed25519_key.pub; \
+        grep -q '^ssh-ed25519 ' /hostdata/ssh_host_ed25519_key.pub ;; \
+      *) echo 'HOST_KEY_MODE must be runtime or embedded' >&2; exit 1 ;; \
+    esac
+
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS initbuild
+ARG TARGETOS TARGETARCH
+WORKDIR /src
+COPY init.go .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags='-s -w' -o /revssh-init init.go
+
+FROM alpine:3.24
+RUN apk add --no-cache openssh-server openssh-keygen \
+    && mkdir -p /data /run/sshd /var/empty
+COPY --from=initbuild /revssh-init /revssh-init
+COPY --chmod=0644 sshd_config /etc/ssh/sshd_config
+COPY --chmod=0644 passwd /etc/passwd
+COPY --chmod=0644 group /etc/group
+COPY --from=hostkeybuild /hostdata/ /data/
+ARG HOST_KEY_MODE=runtime
+ENV REVSSH_HOST_KEY_MODE=${HOST_KEY_MODE} TUNNELS_FILE="" TUNNELS=""
+EXPOSE 2222
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/revssh-init", "healthcheck"]
+ENTRYPOINT ["/revssh-init"]

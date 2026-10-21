@@ -1,0 +1,104 @@
+# Docker Swarm deployment; build locally first with:
+# docker compose -f compose.swarm-embedded.yml build revssh
+# docker stack deploy -c compose.swarm-embedded.yml --resolve-image never revssh
+# NEVER push the embedded-key image to a registry.
+# Required external environment: ENDPOINT_A_PUBLIC_KEY, ENDPOINT_B_PUBLIC_KEY, ACME_EMAIL.
+# DNS: ssh.example.com, app1.example.com, app2.example.com point to Swarm ingress.
+
+services:
+  traefik:
+    image: traefik:v3.6
+    command:
+      - --providers.swarm=true
+      - --providers.swarm.exposedbydefault=false
+      - --providers.swarm.network=revssh_public
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?Set ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: ingress
+    volumes:
+      # Swarm managers only; Docker socket access confers significant privilege.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/acme
+    networks:
+      - public
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.revssh_gateway == true
+      restart_policy:
+        condition: any
+
+  revssh:
+    # DANGER: PRIVATE SSH HOST KEY IS BAKED INTO THIS IMAGE.
+    # Never push, export to an untrusted location, or enable remote build cache.
+    image: docker-revssh:chiseled-embedded-local
+    build:
+      context: .
+      dockerfile: Dockerfile.chiseled
+      args:
+        HOST_KEY_MODE: embedded
+    environment:
+      TUNNELS: |-
+        endpoint-a|18080|${ENDPOINT_A_PUBLIC_KEY:?Set ENDPOINT_A_PUBLIC_KEY}
+        endpoint-b|13000|${ENDPOINT_B_PUBLIC_KEY:?Set ENDPOINT_B_PUBLIC_KEY}
+    healthcheck:
+      test: ["CMD", "/revssh-init", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    ports:
+      - target: 2222
+        published: 2222
+        protocol: tcp
+        mode: ingress
+    networks:
+      - public
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.revssh_gateway == true
+      restart_policy:
+        condition: any
+      labels:
+        - traefik.enable=true
+        - traefik.swarm.network=revssh_public
+        - traefik.http.routers.revssh-app1.rule=Host(`app1.example.com`)
+        - traefik.http.routers.revssh-app1.entrypoints=websecure
+        - traefik.http.routers.revssh-app1.tls=true
+        - traefik.http.routers.revssh-app1.tls.certresolver=letsencrypt
+        - traefik.http.routers.revssh-app1.service=revssh-app1
+        - traefik.http.services.revssh-app1.loadbalancer.server.port=18080
+        - traefik.http.routers.revssh-app2.rule=Host(`app2.example.com`)
+        - traefik.http.routers.revssh-app2.entrypoints=websecure
+        - traefik.http.routers.revssh-app2.tls=true
+        - traefik.http.routers.revssh-app2.tls.certresolver=letsencrypt
+        - traefik.http.routers.revssh-app2.service=revssh-app2
+        - traefik.http.services.revssh-app2.loadbalancer.server.port=13000
+
+networks:
+  public:
+    name: revssh_public
+    driver: overlay
+    attachable: false
+
+volumes:
+  traefik_acme:
