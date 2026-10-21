@@ -41,3 +41,7 @@ autossh -M 0 -NT -p 2222 -i ~/.ssh/id_ed25519 \
 - Container `/data` should be writable; keep it on a trusted persistent volume. No host ports for forwarded services need be published: Traefik reaches forwarded listeners on the shared Docker overlay network.
 - These variants were statically checked and their Go initializer was compiled locally, but **Docker builds and end-to-end SSH tests have not been executed** in this environment. Add both variants to your CI integration-test matrix before release. Verify library completeness on both amd64 and arm64.
 - Image references and builders should be pinned to digests for reproducible releases. Use Trivy/SBOM scans and regular base refreshes. Avoid placing key authorization policy in unsecured public environment variable displays; Docker Swarm configs or secrets are preferable.
+
+## Restricted login shell in shell-less images
+
+OpenSSH checks that the `tunnel` user's configured login shell exists and is executable **even for forwarding-only connections**. Distroless and Chiseled therefore compile the included `false.go` to `/bin/false` for each target architecture. The binary exits with status 1 and does not provide a command shell. Alpine already supplies `/bin/false` and needs no extra binary. The CI SSH authentication tests exercise this requirement for every architecture.

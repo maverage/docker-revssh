@@ -445,3 +445,8 @@ Add a `LICENSE` file defining the terms under which you distribute this project.
 ### Host-key isolation in CI
 
 The integration tests start two independent containers from each image. For standard runtime-key images, they require **different** SSH host keys (no shared `/data` volume); for embedded-key images, they require **matching** host keys. Both identities are checked against the keys served by SSH, and restart persistence is verified. These checks cover all three image variants and both CPU architectures before a release is published.
+
+
+### Non-login shell for restricted SSH accounts
+
+OpenSSH validates the `tunnel` account’s login-shell path even when interactive sessions are disabled. Alpine provides `/bin/false` through its base packages; Distroless and Ubuntu Chiseled compile the minimal static `false.go` helper to `/bin/false` for each target architecture. It always exits unsuccessfully and provides no shell access. This is necessary for SSH public-key authentication in the shell-less variants.

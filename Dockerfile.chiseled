@@ -27,6 +27,8 @@ ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY init.go .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /revssh-init init.go
+COPY false.go .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/false false.go
 
 FROM --platform=$BUILDPLATFORM golang:1.26 AS chiselbuild
 RUN CGO_ENABLED=0 go install github.com/canonical/chisel/cmd/chisel@v1.5.1
@@ -46,6 +48,7 @@ RUN mkdir -p /rootfs && chisel cut --release ubuntu-26.04 --arch "$TARGETARCH" -
 FROM scratch
 COPY --from=slicebuild /rootfs/ /
 COPY --from=initbuild /revssh-init /revssh-init
+COPY --from=initbuild /out/false /bin/false
 COPY sshd_config /etc/ssh/sshd_config
 COPY passwd /etc/passwd
 COPY group /etc/group

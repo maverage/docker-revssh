@@ -27,6 +27,8 @@ ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY init.go .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /revssh-init init.go
+COPY false.go .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/false false.go
 
 FROM debian:trixie-slim AS sshbuild
 RUN apt-get update && apt-get install -y --no-install-recommends openssh-server openssh-client ca-certificates \
@@ -48,11 +50,19 @@ RUN set -eu; mkdir -p /sshroot/var/empty; \
         mkdir -p "/sshroot$(dirname "$dest")"; \
         cp -L "$lib" "/sshroot$dest"; \
       done; \
+    done; \
+    triplet="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"; \
+    for name in libselinux.so.1 libpcre2-8.so.0; do \
+      src="/usr/lib/$triplet/$name"; \
+      test -f "$src" || { echo "Missing required library: $src" >&2; exit 1; }; \
+      mkdir -p "/sshroot/usr/lib/$triplet"; \
+      cp -L "$src" "/sshroot/usr/lib/$triplet/$name"; \
     done
 
 FROM gcr.io/distroless/base-debian13:latest
 COPY --from=sshbuild /sshroot/ /
 COPY --from=initbuild /revssh-init /revssh-init
+COPY --from=initbuild /out/false /bin/false
 COPY sshd_config /etc/ssh/sshd_config
 # sshd privilege separation user and restricted tunnel account; no login shell.
 COPY --chmod=0644 passwd /etc/passwd
