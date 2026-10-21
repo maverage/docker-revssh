@@ -194,7 +194,7 @@ func main() {
 	}
 	run("/usr/sbin/sshd", "-t", "-f", "/etc/ssh/sshd_config")
 	fmt.Fprintf(os.Stderr, "revssh-init: starting sshd with %d authorized endpoints\n", count)
-	if err := syscall.Exec("/usr/sbin/sshd", []string{"sshd", "-D", "-e", "-f", "/etc/ssh/sshd_config"}, os.Environ()); err != nil {
+	if err := syscall.Exec("/usr/sbin/sshd", []string{"/usr/sbin/sshd", "-D", "-e", "-f", "/etc/ssh/sshd_config"}, os.Environ()); err != nil {
 		fail("exec sshd: %v", err)
 	}
 }

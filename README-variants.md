@@ -33,7 +33,7 @@ autossh -M 0 -NT -p 2222 -i ~/.ssh/id_ed25519 \
 ## Differences
 
 - **Distroless:** Debian 13 OpenSSH binaries and dynamic library dependencies copied from a Debian 13 builder onto Google's `base-debian13`; no package manager/shell in runtime.
-- **Ubuntu Chiseled:** Uses Ubuntu 24.04's published `openssh-server_bins` and `openssh-server_config` slices from Canonical Chisel; `scratch` runtime contains only selected files and custom configuration.
+- **Ubuntu Chiseled:** Uses Ubuntu 26.04's published `openssh-server_bins` and `openssh-server_config` slices from Canonical Chisel; `scratch` runtime contains only selected files and custom configuration.
 
 ## Cautions
 

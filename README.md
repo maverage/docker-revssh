@@ -53,7 +53,7 @@ Substitute `<owner>` with your GitHub account or organization (GHCR repository n
 
 | Base | Image | Description |
 | --- | --- | --- |
-| **Ubuntu Chiseled** (default) | `ghcr.io/<owner>/docker-revssh:latest` or `:chiseled` | Ubuntu 24.04 OpenSSH package slices assembled with Chisel; minimal `scratch` runtime |
+| **Ubuntu Chiseled** (default) | `ghcr.io/<owner>/docker-revssh:latest` or `:chiseled` | Ubuntu 26.04 OpenSSH package slices assembled with Chisel; minimal `scratch` runtime |
 | Alpine | `ghcr.io/<owner>/docker-revssh:alpine` | Alpine 3.24 with packaged OpenSSH |
 | Google Distroless | `ghcr.io/<owner>/docker-revssh:distroless` | Distroless Debian 13 base plus Debian OpenSSH binaries and dependencies |
 

@@ -46,3 +46,7 @@ Every matrix combination tests host identity in two independent containers:
 - **`embedded` mode:** two containers started from the same image must expose **identical** baked SSH host keys. Masking `/data` must fail closed rather than generate a replacement key.
 
 Both checks run for Alpine, Distroless, and Chiseled on `linux/amd64` and `linux/arm64` as part of `tests/integration.sh`. A failed assertion blocks publishing.
+
+## Ubuntu Chiseled version
+
+`Dockerfile.chiseled` uses Ubuntu 26.04 slices with Chisel v1.5.1 (required for v3 slice definitions). The builder installs CA certificates for HTTPS access to the Chisel release repository.

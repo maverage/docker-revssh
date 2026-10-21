@@ -8,7 +8,6 @@ PubkeyAuthentication yes
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 AuthenticationMethods publickey
-UsePAM no
 AllowUsers tunnel
 AuthorizedKeysFile /run/sshd/authorized_keys
 StrictModes yes
