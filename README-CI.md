@@ -50,3 +50,21 @@ Both checks run for Alpine, Distroless, and Chiseled on `linux/amd64` and `linux
 ## Ubuntu Chiseled version
 
 `Dockerfile.chiseled` uses Ubuntu 26.04 slices with Chisel v1.5.1 (required for v3 slice definitions). The builder installs CA certificates for HTTPS access to the Chisel release repository.
+
+### Alpine public-key authentication
+
+The Alpine image sets the `tunnel` account shadow password field to `NP` (an unusable password marker) instead of BusyBox `adduser`'s locked `!` marker. OpenSSH can deny public-key authentication to a locked account. Password and keyboard-interactive authentication remain disabled in the static `sshd_config`; `MaxSessions 0` still prevents shell/exec sessions. On failure the integration test prints the server logs and client diagnostics.
+
+### Authentication failure diagnostics
+
+The integration suite prints container logs and a bounded `ssh -vvv` client trace when a valid key is rejected. The SSH server reads `/run/sshd/authorized_keys` using the unprivileged `tunnel` account (UID 10001), so the initializer sets `/run/sshd` to `0755` and the root-owned `authorized_keys` file to `0644`. These public keys are not secrets; the file remains unwritable by the tunnel account. Distroless/Chiseled supply a non-password `NP` shadow marker for the tunnel user; password and keyboard-interactive authentication remain disabled.
+
+
+### Integration-test networking
+
+On GitHub-hosted Linux runners the integration suite connects directly to the
+container IP on its dedicated Docker bridge network (TCP 2222). It does not
+rely on Docker allocating/publishing an ephemeral host port. The production
+image still declares `EXPOSE 2222`; deployment configurations publish SSH
+as required. The test assumes a Linux Docker host whose runner can reach
+Docker bridge container addresses.

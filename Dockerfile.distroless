@@ -57,6 +57,7 @@ COPY sshd_config /etc/ssh/sshd_config
 # sshd privilege separation user and restricted tunnel account; no login shell.
 COPY --chmod=0644 passwd /etc/passwd
 COPY --chmod=0644 group /etc/group
+COPY --chmod=0600 shadow /etc/shadow
 COPY --from=hostkeybuild /hostdata/ /data/
 ARG HOST_KEY_MODE=runtime
 ENV REVSSH_HOST_KEY_MODE=${HOST_KEY_MODE} TUNNELS_FILE="" TUNNELS=""

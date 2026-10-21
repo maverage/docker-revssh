@@ -49,6 +49,7 @@ COPY --from=initbuild /revssh-init /revssh-init
 COPY sshd_config /etc/ssh/sshd_config
 COPY passwd /etc/passwd
 COPY group /etc/group
+COPY --chmod=0600 shadow /etc/shadow
 COPY --from=hostkeybuild /hostdata/ /data/
 ARG HOST_KEY_MODE=runtime
 ENV REVSSH_HOST_KEY_MODE=${HOST_KEY_MODE} TUNNELS_FILE="" TUNNELS=""

@@ -30,9 +30,14 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags='-s -w' -o /revssh-init init.go
 
 FROM alpine:3.24
+# An account locked with ! in /etc/shadow is rejected by OpenSSH even for
+# public-key auth. NP is deliberately not a valid password hash, and sshd
+# independently disables password and keyboard-interactive authentication.
 RUN apk add --no-cache openssh-server openssh-keygen \
     && addgroup -S -g 10001 tunnel \
     && adduser -S -D -H -u 10001 -G tunnel -h /nonexistent -s /bin/false tunnel \
+    && sed -i 's/^tunnel:[^:]*:/tunnel:NP:/' /etc/shadow \
+    && grep -q '^tunnel:NP:' /etc/shadow \
     && mkdir -p /data /run/sshd /var/empty
 COPY --from=initbuild /revssh-init /revssh-init
 COPY --chmod=0644 sshd_config /etc/ssh/sshd_config
