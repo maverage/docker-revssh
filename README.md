@@ -1,5 +1,30 @@
 # docker-revssh
 
+## Configurable runtime UID and GID
+
+All three distributions accept `UID` and `GID` environment variables (default: **10001:10001**). The Go entrypoint starts briefly as root to update the `tunnel` account in `/etc/passwd` and `/etc/group`, adjust `/data` and `/run/revssh`, and then **permanently drops to the requested non-root UID/GID** before generating host keys or starting `sshd`. The SSH daemon itself does not run as root. The static `sshd_config` is never regenerated.
+
+```yaml
+services:
+  revssh:
+    image: ghcr.io/maverage/docker-revssh:latest
+    environment:
+      UID: "12000"
+      GID: "12000"
+      TUNNELS: |
+        endpoint-a|18080|ssh-ed25519 REPLACE_WITH_REAL_PUBLIC_KEY
+    volumes:
+      - revssh-hostkeys:/data
+volumes:
+  revssh-hostkeys:
+```
+
+The values must be integers in the range 1–60000; 0 is rejected. The entrypoint changes ownership of the `/data` directory and existing host-key files, **not arbitrary files recursively**. Ensure custom bind mounts permit those operations (read-only mounts, root-squash NFS, and restrictive user namespace mappings may prevent them). Use separate persistent storage per runtime-key identity. Embedded-key builds still require that `/data` not be masked by a volume.
+
+**Security tradeoff:** Dynamic UID/GID selection requires a root bootstrap process. The final OpenSSH server and its forwarding session use the unprivileged identity. Do not set Compose `user:` to a non-root value: that prevents the bootstrap from updating account records and filesystem ownership. Containers should not be given `privileged: true` or extra capabilities.
+
+# docker-revssh
+
 **A minimal, key-restricted SSH reverse-tunneling server for Docker and Docker Swarm.**
 
 `docker-revssh` lets applications behind NAT or a firewall become reachable through a central server without opening inbound ports at the remote endpoint. Each endpoint uses a dedicated **Ed25519 SSH key** and can request only its explicitly assigned **reverse (`-R`) listening ports**.
@@ -48,6 +73,8 @@ Endpoint B behind firewall                 │  ├─ 0.0.0.0:18080 (key A) │
 Remote clients initiate outbound SSH connections. The gateway's SSH port must be reachable by these clients; application listener ports do **not** need to be published on the host.
 
 ## Choose an image
+
+The examples use `ghcr.io/maverage/docker-revssh`.
 
 | Base | Image | Description |
 | --- | --- | --- |
@@ -282,7 +309,7 @@ For production, prefer a read-only mounted configuration or a Docker Swarm secre
 | File | Lifetime | Purpose |
 | --- | --- | --- |
 | `/etc/ssh/sshd_config` | **Image build**, never rewritten at startup | Common SSH authentication and forwarding policy |
-| `/run/sshd/authorized_keys` | **Regenerated each container startup** | Per-key `restrict,port-forwarding,permitlisten=...` restrictions |
+| `/run/revssh/authorized_keys` | **Regenerated each container startup** | Per-key `restrict,port-forwarding,permitlisten=...` restrictions |
 | `/data/ssh_host_ed25519_key` | Runtime: generated **only if missing**; embedded: baked into image | SSH server identity; mount `/data` explicitly only for runtime-mode persistence |
 
 The internal SSH service always listens on **TCP 2222**; change the *published host port* if needed (e.g. `-p 2200:2222`) and use the corresponding `autossh -p` value. There is no runtime `SSH_PORT` configuration in these variants.

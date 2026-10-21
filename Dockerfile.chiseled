@@ -55,7 +55,10 @@ COPY group /etc/group
 COPY --chmod=0600 shadow /etc/shadow
 COPY --from=hostkeybuild /hostdata/ /data/
 ARG HOST_KEY_MODE=runtime
-ENV REVSSH_HOST_KEY_MODE=${HOST_KEY_MODE} TUNNELS_FILE="" TUNNELS=""
+ENV REVSSH_HOST_KEY_MODE=${HOST_KEY_MODE} TUNNELS_FILE="" TUNNELS="" UID=10001 GID=10001
 EXPOSE 2222
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/revssh-init", "healthcheck"]
+# PID 1 briefly starts as root to configure the requested UID/GID and
+# filesystem ownership, then permanently drops privileges before starting sshd.
+USER 0:0
 ENTRYPOINT ["/revssh-init"]

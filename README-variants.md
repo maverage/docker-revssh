@@ -1,6 +1,6 @@
 # docker-revssh: minimized runtime variants
 
-Both variants use the same **static** `sshd_config` (`sshd_config` in the build context) and regenerate only `/run/sshd/authorized_keys` on startup. A statically compiled Go entrypoint replaces the Alpine shell script because neither runtime contains a shell. `/data/ssh_host_ed25519_key` persists if `/data` is mounted.
+Both variants use the same **static** `sshd_config` (`sshd_config` in the build context) and regenerate only `/run/revssh/authorized_keys` on startup. A statically compiled Go entrypoint replaces the Alpine shell script because neither runtime contains a shell. `/data/ssh_host_ed25519_key` persists if `/data` is mounted.
 
 ## Build
 
@@ -45,3 +45,5 @@ autossh -M 0 -NT -p 2222 -i ~/.ssh/id_ed25519 \
 ## Restricted login shell in shell-less images
 
 OpenSSH checks that the `tunnel` user's configured login shell exists and is executable **even for forwarding-only connections**. Distroless and Chiseled therefore compile the included `false.go` to `/bin/false` for each target architecture. The binary exits with status 1 and does not provide a command shell. Alpine already supplies `/bin/false` and needs no extra binary. The CI SSH authentication tests exercise this requirement for every architecture.
+
+All three images use a root bootstrap to select `UID`/`GID` (default `10001:10001`) before dropping privileges to run sshd. Bind-mounted `/data` must be owned by UID 10001. Non-root `sshd` uses the same `tunnel` account for authentication and requires the OpenSSH-managed `/run/sshd` directory to remain root-owned.
