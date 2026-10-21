@@ -68,7 +68,9 @@ func main() {
 	if err := os.Chmod(data, 0700); err != nil {
 		fail("chmod data: %v", err)
 	}
-	if err := os.Chmod(runtime, 0700); err != nil {
+	// sshd reads AuthorizedKeysFile with the target account credentials.
+	// Make the directory traversable; authorized_keys itself remains root-owned.
+	if err := os.Chmod(runtime, 0755); err != nil {
 		fail("chmod run: %v", err)
 	}
 	host := data + "/ssh_host_ed25519_key"
@@ -180,7 +182,9 @@ func main() {
 	if err != nil {
 		fail("create authorized_keys: %v", err)
 	}
-	if err := temp.Chmod(0600); err != nil {
+	// Public keys are not secrets. Root-owned 0644 lets the unprivileged
+	// tunnel account read the file while preventing it from modifying it.
+	if err := temp.Chmod(0644); err != nil {
 		fail("chmod authorized_keys: %v", err)
 	}
 	if _, err := temp.Write(buf.Bytes()); err != nil {
