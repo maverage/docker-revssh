@@ -49,13 +49,11 @@ Remote clients initiate outbound SSH connections. The gateway's SSH port must be
 
 ## Choose an image
 
-Substitute `<owner>` with your GitHub account or organization (GHCR repository names are lowercase).
-
 | Base | Image | Description |
 | --- | --- | --- |
-| **Ubuntu Chiseled** (default) | `ghcr.io/<owner>/docker-revssh:latest` or `:chiseled` | Ubuntu 26.04 OpenSSH package slices assembled with Chisel; minimal `scratch` runtime |
-| Alpine | `ghcr.io/<owner>/docker-revssh:alpine` | Alpine 3.24 with packaged OpenSSH |
-| Google Distroless | `ghcr.io/<owner>/docker-revssh:distroless` | Distroless Debian 13 base plus Debian OpenSSH binaries and dependencies |
+| **Ubuntu Chiseled** (default) | `ghcr.io/maverage/docker-revssh:latest` or `:chiseled` | Ubuntu 26.04 OpenSSH package slices assembled with Chisel; minimal `scratch` runtime |
+| Alpine | `ghcr.io/maverage/docker-revssh:alpine` | Alpine 3.24 with packaged OpenSSH |
+| Google Distroless | `ghcr.io/maverage/docker-revssh:distroless` | Distroless Debian 13 base plus Debian OpenSSH binaries and dependencies |
 
 The table above lists **runtime-key images only**. An additional **embedded host-key build mode** exists for each distribution and architecture; those images MUST stay private and are never published by CI. All variants use identical SSH authorization policies. **`:latest` always selects Chiseled**, not Alpine. Tags on `main` include `latest`, `chiseled`, `alpine`, and `distroless`; a `v1.2.3` release also creates `1.2.3` (Chiseled), `1.2.3-chiseled`, `1.2.3-alpine`, `1.2.3-distroless` and corresponding `1.2*` tags. The published tags are multi-platform manifests with `linux/amd64` and `linux/arm64` entries.
 
@@ -135,7 +133,7 @@ For a stable identity across image upgrades, container recreation, and Compose r
 ```yaml
 services:
   revssh:
-    image: ghcr.io/<owner>/docker-revssh:latest
+    image: ghcr.io/maverage/docker-revssh:latest
     environment:
       TUNNELS: |
         endpoint-a|18080|ssh-ed25519 REPLACE_WITH_REAL_KEY endpoint-a
@@ -236,7 +234,7 @@ docker run -d \
   -v docker-revssh-data:/data \
   -v "$PWD/tunnels.conf:/config/tunnels.conf:ro" \
   -e TUNNELS_FILE=/config/tunnels.conf \
-  ghcr.io/<owner>/docker-revssh:latest
+  ghcr.io/maverage/docker-revssh:latest
 ```
 
 For a locally built image, substitute `docker-revssh:chiseled` (see [Building locally](#building-locally)).
@@ -298,7 +296,7 @@ This assumes an **existing external overlay network** named `proxy`, with Traefi
 ```yaml
 services:
   revssh:
-    image: ghcr.io/<owner>/docker-revssh:latest
+    image: ghcr.io/maverage/docker-revssh:latest
     environment:
       TUNNELS_FILE: /run/configs/tunnels
     configs:
@@ -382,7 +380,7 @@ For a multi-architecture publication to your own registry:
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 \
   -f Dockerfile.chiseled \
-  -t ghcr.io/<owner>/docker-revssh:chiseled --push .
+  -t ghcr.io/maverage/docker-revssh:chiseled --push .
 ```
 
 For release publishing, use the provided CI pipeline instead: it tests each platform/variant before creating multi-architecture tags. The Chiseled build uses host-platform Chisel with `--arch "$TARGETARCH"` to download target architecture package slices; the Go initializer is cross-compiled with `GOOS`/`GOARCH`.
