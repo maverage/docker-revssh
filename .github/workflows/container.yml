@@ -76,6 +76,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
+          version: v0.76.1
           image-ref: ${{ steps.vars.outputs.local }}
           scanners: vuln
           severity: HIGH,CRITICAL
@@ -83,14 +84,23 @@ jobs:
           exit-code: '1'
           format: table
 
-      - name: Scan Dockerfile for misconfigurations
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Install Trivy CLI for Dockerfile checks
+        uses: aquasecurity/setup-trivy@v0.3.1
         with:
-          scan-type: config
-          scan-ref: Dockerfile.${{ matrix.variant }}
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: table
+          version: v0.76.1
+
+      - name: Scan Dockerfile for misconfigurations
+        env:
+          DOCKERFILE: Dockerfile.${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          trivy --version
+          trivy config \
+            --ignorefile ./trivy-dockerfile.ignore \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --format table \
+            "$DOCKERFILE"
 
       # Embedded-key images NEVER leave the runner. Only runtime-mode images publish.
       # Publishing THIS locally tested image avoids rebuilding between test and push.

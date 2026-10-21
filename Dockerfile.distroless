@@ -31,7 +31,7 @@ COPY false.go .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/false false.go
 
 FROM debian:trixie-slim AS sshbuild
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server openssh-client ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server openssh-client ca-certificates dpkg-dev \
     && rm -rf /var/lib/apt/lists/*
 # Debian 13 and Distroless use merged-/usr. The final base has /lib as a
 # symlink to /usr/lib; copying a real /lib directory would conflict with it.
@@ -41,7 +41,7 @@ RUN set -eu; mkdir -p /sshroot/var/empty; \
     for binary in /usr/sbin/sshd /usr/bin/ssh-keygen /usr/lib/openssh/sshd-session /usr/lib/openssh/sshd-auth; do \
       [ -f "$binary" ] || continue; \
       mkdir -p "/sshroot$(dirname "$binary")"; cp -L "$binary" "/sshroot$binary"; \
-      ldd "$binary" | awk '/=> \/ {print $3} /^\/ {print $1}' | while read -r lib; do \
+      ldd "$binary" | awk '$2 == "=>" && index($3, "/") == 1 {print $3} index($1, "/") == 1 {print $1}' | while read -r lib; do \
         case "$lib" in \
           /lib/*) dest="/usr$lib" ;; \
           /lib64/*) continue ;; \
