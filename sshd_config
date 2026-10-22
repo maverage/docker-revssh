@@ -9,7 +9,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 AuthenticationMethods publickey
 AllowUsers tunnel
-AuthorizedKeysFile /run/sshd/authorized_keys
+AuthorizedKeysFile /run/revssh/authorized_keys
 StrictModes yes
 PermitTTY no
 MaxSessions 0
@@ -28,4 +28,4 @@ ClientAliveInterval 30
 ClientAliveCountMax 3
 PermitUserEnvironment no
 LogLevel VERBOSE
-PidFile /run/sshd/sshd.pid
+PidFile /run/revssh/sshd.pid

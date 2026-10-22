@@ -1,8 +1,8 @@
 # Dockerfile misconfiguration scan only; NOT used for CVE image scanning.
-# AVD-DS-0002: OpenSSH master must start as root to support privilege separation,
-# bind/configure services, and drop privileges for authenticated sessions.
-AVD-DS-0002
-
 # AVD-DS-0031: Both variables are enum selectors (runtime/embedded),
 # never secret values; actual private host keys are supplied via BuildKit secrets.
 AVD-DS-0031
+
+# Root-only startup bootstrap is required to honor runtime UID/GID;
+# the initializer drops privileges before executing the SSH daemon.
+AVD-DS-0002

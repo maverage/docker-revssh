@@ -8,8 +8,7 @@ name="revssh-test-$$"
 net="revssh-net-$$"
 web_pid=''
 cleanup() {
-  docker logs "$name" 2>/dev/null || true
-  docker rm -f "$name" "${name}-second" >/dev/null 2>&1 || true
+  docker rm -f "$name" "${name}-second" "${name}-custom" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
   [[ -z "$web_pid" ]] || kill "$web_pid" 2>/dev/null || true
   rm -rf "$work"
@@ -94,9 +93,41 @@ fi
 observed=$(awk '$2=="ssh-ed25519" {print $2 " " $3; exit}' known_hosts)
 expected=$(awk '{print $1 " " $2}' hostkey.pub)
 test "$observed" = "$expected"
-docker cp "$name:/run/sshd/authorized_keys" authkeys
-# sshd reads AuthorizedKeysFile as tunnel (UID 10001), not root.
-# Assert traversable directory and world-readable root-owned file across distros.
+docker cp "$name:/run/revssh/authorized_keys" authkeys
+# Verify daemon and initializer execute with the intended unprivileged UID.
+# Verify sshd really runs under the default unprivileged identity after bootstrap.
+if ! docker top "$name" -eo pid,uid,gid,comm | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+10001[[:space:]]+10001[[:space:]]+sshd'; then
+  echo 'SSH daemon did not drop to UID/GID 10001:10001' >&2
+  docker top "$name" -eo pid,uid,gid,comm >&2 || true
+  exit 1
+fi
+# No process in the container (init has exec'd into sshd) may remain root.
+if docker top "$name" -eo pid,uid,comm | awk 'NR>1 && $2==0 {found=1} END {exit !found}'; then
+  echo 'A root process is still running in the container' >&2
+  docker top "$name" -eo pid,uid,gid,comm >&2 || true
+  exit 1
+fi
+# A distinct UID and GID must work without rebuilding the image.
+custom="${name}-custom"
+docker run -d --platform "$PLATFORM" --name "$custom" --network "$net" \
+  -v "$work/tunnels.conf:/config/tunnels:ro" -e TUNNELS_FILE=/config/tunnels \
+  -e UID=12000 -e GID=13000 "$IMAGE" >/dev/null
+for i in {1..30}; do
+  if docker top "$custom" -eo pid,uid,gid,comm 2>/dev/null | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+12000[[:space:]]+13000[[:space:]]+sshd'; then break; fi
+  if [[ "$(docker inspect -f '{{.State.Running}}' "$custom")" != true ]]; then
+    echo 'Custom UID/GID container failed; logs:' >&2
+    docker logs "$custom" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+if ! docker top "$custom" -eo pid,uid,gid,comm | grep -Eq '^[[:space:]]*[0-9]+[[:space:]]+12000[[:space:]]+13000[[:space:]]+sshd'; then
+  echo 'Custom UID/GID was not applied to sshd' >&2
+  exit 1
+fi
+docker exec "$custom" /revssh-init healthcheck
+docker rm -f "$custom" >/dev/null
+
 docker exec "$name" /revssh-init healthcheck
 [[ $(grep -c '^restrict,port-forwarding,' authkeys) -eq 2 ]]
 docker exec "$name" /usr/sbin/sshd -t -f /etc/ssh/sshd_config
@@ -106,15 +137,11 @@ python3 -m http.server 28080 --bind 127.0.0.1 >/dev/null 2>&1 & web_pid=$!
 if ! ssh "${sshopt[@]}" -i a -fNT -R 0.0.0.0:18080:127.0.0.1:28080 tunnel@"$ssh_host"; then
   echo 'Endpoint A SSH authentication/forwarding failed; sshd logs:' >&2
   docker logs "$name" >&2 || true
-  echo 'SSH client diagnostic:' >&2
-  timeout 12 ssh -vvv "${sshopt[@]}" -i a -NT -R 0.0.0.0:18080:127.0.0.1:28080 tunnel@"$ssh_host" </dev/null >&2 || true
   exit 1
 fi
 if ! ssh "${sshopt[@]}" -i b -fNT -R 0.0.0.0:13000:127.0.0.1:28080 tunnel@"$ssh_host"; then
   echo 'Endpoint B SSH authentication/forwarding failed; sshd logs:' >&2
   docker logs "$name" >&2 || true
-  echo 'SSH client diagnostic:' >&2
-  timeout 12 ssh -vvv "${sshopt[@]}" -i b -NT -R 0.0.0.0:13000:127.0.0.1:28080 tunnel@"$ssh_host" </dev/null >&2 || true
   exit 1
 fi
 # Probe from a separate container. Distroless and chiseled have no curl/sh.
@@ -136,7 +163,7 @@ for i in {1..30}; do
 done
 docker cp "$name:/data/ssh_host_ed25519_key.pub" hostkey2.pub
 cmp hostkey.pub hostkey2.pub
-docker cp "$name:/run/sshd/authorized_keys" authkeys2
+docker cp "$name:/run/revssh/authorized_keys" authkeys2
 cmp authkeys authkeys2
 # Fail closed on malformed declarations.
 for bad in 'a|80|ssh-ed25519 INVALID' 'a|nope|ssh-ed25519 INVALID' 'a|18080|ssh-rsa INVALID'; do

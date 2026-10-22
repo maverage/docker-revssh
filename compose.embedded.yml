@@ -40,6 +40,8 @@ services:
       args:
         HOST_KEY_MODE: embedded
     environment:
+      UID: "${UID:-10001}"
+      GID: "${GID:-10001}"
       TUNNELS: |-
         endpoint-a|18080|${ENDPOINT_A_PUBLIC_KEY:?Set ENDPOINT_A_PUBLIC_KEY}
         endpoint-b|13000|${ENDPOINT_B_PUBLIC_KEY:?Set ENDPOINT_B_PUBLIC_KEY}

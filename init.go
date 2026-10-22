@@ -49,6 +49,81 @@ func healthcheck() {
 	}
 }
 
+// provisionIdentity updates the dedicated SSH account and runtime ownership
+// before permanently dropping bootstrap privileges. Only root can change UID/GID.
+func provisionIdentity() {
+	parse := func(name string) int {
+		value := os.Getenv(name)
+		if value == "" {
+			return 10001
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 || n > 60000 {
+			fail("%s must be an integer from 1 to 60000", name)
+		}
+		return n
+	}
+	uid, gid := parse("UID"), parse("GID")
+	if os.Geteuid() != 0 {
+		fail("root bootstrap is required to select UID/GID")
+	}
+	// Keep the package-provided sshd account and all other system identities.
+	update := func(path, account, replacement string) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			fail("read %s: %v", path, err)
+		}
+		lines := strings.Split(string(raw), "\n")
+		found := false
+		for i, line := range lines {
+			if strings.HasPrefix(line, account+":") {
+				lines[i] = replacement
+				found = true
+			}
+		}
+		if !found {
+			fail("missing account %s in %s", account, path)
+		}
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+			fail("write %s: %v", path, err)
+		}
+	}
+	update("/etc/passwd", "tunnel", fmt.Sprintf("tunnel:x:%d:%d:tunnel:/nonexistent:/bin/false", uid, gid))
+	update("/etc/group", "tunnel", fmt.Sprintf("tunnel:x:%d:", gid))
+	for _, path := range []string{"/data", "/run/revssh"} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			fail("mkdir %s: %v", path, err)
+		}
+		if err := os.Chown(path, uid, gid); err != nil {
+			fail("chown %s: %v", path, err)
+		}
+		if err := os.Chmod(path, 0700); err != nil {
+			fail("chmod %s: %v", path, err)
+		}
+	}
+	for _, name := range []string{"/data/ssh_host_ed25519_key", "/data/ssh_host_ed25519_key.pub"} {
+		if _, err := os.Stat(name); err == nil {
+			if err := os.Chown(name, uid, gid); err != nil {
+				fail("chown %s: %v", name, err)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			fail("stat %s: %v", name, err)
+		}
+	}
+	if err := syscall.Setgroups([]int{}); err != nil {
+		fail("setgroups: %v", err)
+	}
+	if err := syscall.Setgid(gid); err != nil {
+		fail("setgid: %v", err)
+	}
+	if err := syscall.Setuid(uid); err != nil {
+		fail("setuid: %v", err)
+	}
+	if os.Geteuid() != uid || os.Getegid() != gid {
+		fail("failed to drop privileges")
+	}
+}
+
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
 		healthcheck()
@@ -57,22 +132,10 @@ func main() {
 	if len(os.Args) != 1 {
 		fail("unknown arguments")
 	}
+	provisionIdentity()
+	// provisionIdentity already created /data and /run/revssh with 0700 ownership of the final UID.
 	const data = "/data"
-	const runtime = "/run/sshd"
-	if err := os.MkdirAll(data, 0700); err != nil {
-		fail("mkdir data: %v", err)
-	}
-	if err := os.MkdirAll(runtime, 0700); err != nil {
-		fail("mkdir run: %v", err)
-	}
-	if err := os.Chmod(data, 0700); err != nil {
-		fail("chmod data: %v", err)
-	}
-	// sshd reads AuthorizedKeysFile with the target account credentials.
-	// Make the directory traversable; authorized_keys itself remains root-owned.
-	if err := os.Chmod(runtime, 0755); err != nil {
-		fail("chmod run: %v", err)
-	}
+	const runtime = "/run/revssh"
 	host := data + "/ssh_host_ed25519_key"
 	if _, err := os.Stat(host); errors.Is(err, os.ErrNotExist) {
 		if os.Getenv("REVSSH_HOST_KEY_MODE") == "embedded" {
@@ -182,9 +245,8 @@ func main() {
 	if err != nil {
 		fail("create authorized_keys: %v", err)
 	}
-	// Public keys are not secrets. Root-owned 0644 lets the unprivileged
-	// tunnel account read the file while preventing it from modifying it.
-	if err := temp.Chmod(0644); err != nil {
+	// Only the dedicated tunnel UID needs to read its key configuration.
+	if err := temp.Chmod(0600); err != nil {
 		fail("chmod authorized_keys: %v", err)
 	}
 	if _, err := temp.Write(buf.Bytes()); err != nil {
