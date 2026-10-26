@@ -22,7 +22,7 @@ RUN --mount=type=secret,id=revssh_hostkey,required=false \
       *) echo 'HOST_KEY_MODE must be runtime or embedded' >&2; exit 1 ;; \
     esac
 
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS initbuild
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS initbuild
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY init.go .

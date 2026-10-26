@@ -22,7 +22,7 @@ RUN --mount=type=secret,id=revssh_hostkey,required=false \
       *) echo 'HOST_KEY_MODE must be runtime or embedded' >&2; exit 1 ;; \
     esac
 
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS initbuild
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS initbuild
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY init.go .
@@ -30,7 +30,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 COPY false.go .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/false false.go
 
-FROM --platform=$BUILDPLATFORM golang:1.26 AS chiselbuild
+FROM --platform=$BUILDPLATFORM golang:1.27 AS chiselbuild
 RUN CGO_ENABLED=0 go install github.com/canonical/chisel/cmd/chisel@v1.5.1
 
 FROM --platform=$BUILDPLATFORM ubuntu:26.04 AS slicebuild
