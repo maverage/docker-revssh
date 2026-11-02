@@ -29,3 +29,4 @@ ClientAliveCountMax 3
 PermitUserEnvironment no
 LogLevel VERBOSE
 PidFile /run/revssh/sshd.pid
+PerSourcePenaltyExemptList 127.0.0.1,::1
